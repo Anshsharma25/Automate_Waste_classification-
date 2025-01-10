@@ -34,7 +34,7 @@ all_models_metadata = {
     "bio_nonBio_model": Bio_Non_Biodegradable_model_metadata
 }
 
-# Save to a pickle file
+# Save to a pickle file and load in app.py for the detection
 pickle_file_path = "All_models_pickle.pkl"
 with open(pickle_file_path, "wb") as file:
     pickle.dump(all_models_metadata, file)
