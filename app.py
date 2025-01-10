@@ -3,8 +3,6 @@ from ultralytics import YOLO
 import cv2
 import time
 import numpy as np
-import pickle
-from sklearn.neighbors import KNeighborsRegressor
 from pymongo import MongoClient
 from datetime import datetime, timezone
 from urllib.parse import quote_plus
@@ -14,65 +12,62 @@ import requests
 app = Flask(__name__)
 
 # MongoDB Setup
-username = quote_plus("dustbin")  # Replace with your MongoDB username
-password = quote_plus("Dustbin@123")  # Replace with your MongoDB password
+username = quote_plus("dustbin")  # Replace with MongoDB username
+password = quote_plus("Dustbin@123")  # Replace with MongoDB password
 MONGO_URI = f"mongodb+srv://{username}:{password}@cluster0.fmudd.mongodb.net/"
 DATABASE_NAME = "garbage_detection"
-COLLECTION_NAME = "detections"
 
 # Connect to MongoDB
 try:
     mongo_client = MongoClient(MONGO_URI)
     db = mongo_client[DATABASE_NAME]
-    detections_collection = db[COLLECTION_NAME]
-    detections_collection.create_index("timestamp", expireAfterSeconds=7200)
+    # Collections for different cameras
+    detections_collection_cam1 = db["detections"]
+    detections_collection_cam2 = db["Other_model_detection"]
+
+    # Set TTL for collections
+    detections_collection_cam1.create_index("timestamp", expireAfterSeconds=7200)
+    detections_collection_cam2.create_index("timestamp", expireAfterSeconds=7200)
+
     print("Connected to MongoDB successfully.")
 except Exception as e:
     print(f"Error connecting to MongoDB: {e}")
     exit()
 
 # Function to insert detection data into MongoDB
-def insert_detection_data(data):
+def insert_detection_data(collection, data):
     try:
-        detections_collection.insert_one(data)
-        print("Detection data saved to MongoDB.")
+        collection.insert_one(data)
+        print(f"Detection data saved to MongoDB ({collection.name}).")
     except Exception as e:
-        print(f"Error saving data to MongoDB: {e}")
+        print(f"Error saving data to MongoDB ({collection.name}): {e}")
 
-# Load model paths from pickle file
-with open('models_pickle.pkl', 'rb') as f:
-    models = pickle.load(f)
-
-# Load YOLO models using the paths from the pickle metadata
-garbage_model = YOLO(models['garbage_model']['model_path'])
-dry_wet_model = YOLO(models['drywet_model']['model_path'])
-cover_noncover_model = YOLO(models['cover_uncover_model']['model_path'])
-polythene_nonpoly_model = YOLO(models['polythene_nonpoly_model']['model_path'])
-
-# KNN for distance estimation
-bbox_size = np.array([[50, 50], [100, 100], [150, 150], [200, 200], [250, 250]])
-distance = np.array([3, 2, 1.5, 1, 0.5])
-knn = KNeighborsRegressor(n_neighbors=3)
-knn.fit(bbox_size, distance)
+# Load YOLO models
+garbage_model = YOLO("garbage_model_path.pt")
+cover_noncover_model = YOLO("cover_noncover_model_path.pt")
+polythene_nonpoly_model = YOLO("polythene_nonpoly_model_path.pt")
+dry_wet_model = YOLO("dry_wet_model_path.pt")
+bio_nonBio_model = YOLO("bio_nonBio_model_path.pt")
 
 # Constants
-boundary_distance = 1.0
-ESP32_CAM_URL = "http://192.168.1.100/cam-hi.jpg"
+ESP32_CAM_URL_1 = "http://192.168.1.100/cam-hi.jpg"  # Camera 1
+ESP32_CAM_URL_2 = "http://192.168.1.101/cam-hi.jpg"  # Camera 2
 fps_limit = 40
 last_frame_time = 0
 
-# Fetch frame from ESP32-CAM
-def fetch_frame():
+# Fetch frame from the camera
+def fetch_frame(camera):
+    url = ESP32_CAM_URL_1 if camera == 1 else ESP32_CAM_URL_2
     try:
-        response = requests.get(ESP32_CAM_URL, stream=True, timeout=5)
+        response = requests.get(url, stream=True, timeout=5)
         if response.status_code == 200:
             img_array = np.asarray(bytearray(response.content), dtype=np.uint8)
             return cv2.imdecode(img_array, cv2.IMREAD_COLOR)
     except Exception as e:
-        print(f"Error fetching frame: {e}")
+        print(f"Error fetching frame from Camera {camera}: {e}")
     return None
 
-# Draw a curved boundary line
+# Draw a curved boundary line for Camera 1
 def draw_curved_boundary(frame):
     frame_height, frame_width = frame.shape[:2]
     curve_depth = 30
@@ -91,8 +86,8 @@ def draw_curved_boundary(frame):
 
     return frame
 
-# Process and generate video feed
-def generate_video():
+# Process Camera 1 Feed
+def process_camera1():
     global last_frame_time
 
     while True:
@@ -101,9 +96,9 @@ def generate_video():
             time.sleep(0.01)
             continue
 
-        frame = fetch_frame()
+        frame = fetch_frame(camera=1)
         if frame is None:
-            print("Failed to fetch frame from ESP32-CAM.")
+            print("Failed to fetch frame from Camera 1.")
             time.sleep(0.5)
             continue
 
@@ -119,7 +114,6 @@ def generate_video():
                     continue
 
                 object_name = garbage_model.names[int(class_id)]
-                class_name_with_confidence = f"{object_name} ({int(conf * 100)}%)"
                 cropped_garbage = frame[y1:y2, x1:x2]
 
                 # Detect cover or uncover status
@@ -134,43 +128,20 @@ def generate_video():
                 if poly_results and poly_results[0].boxes:
                     poly_class = polythene_nonpoly_model.names[int(poly_results[0].boxes[0].cls[0])]
 
-                # Detect dry or wet
-                dry_wet_results = dry_wet_model.predict(source=cropped_garbage, conf=0.5, show=False)
-                dry_wet_class = None
-                if dry_wet_results and dry_wet_results[0].boxes:
-                    dry_wet_class = dry_wet_model.names[int(dry_wet_results[0].boxes[0].cls[0])]
-
-                # Estimate distance using KNN
-                bbox_width, bbox_height = x2 - x1, y2 - y1
-                estimated_distance = knn.predict([[bbox_width, bbox_height]])[0]
-
                 # Save detection data to MongoDB
                 detection_data = {
+                    "camera": "camera1",
                     "object": object_name,
-                    "cover_status": cover_class if cover_class else "unknown",
-                    "poly_status": poly_class if poly_class else "unknown",
-                    "dry_wet_status": dry_wet_class if dry_wet_class else "unknown",
-                    "distance": estimated_distance,
+                    "cover_status": cover_class if cover_class else "Non_cover",
+                    "poly_status": poly_class if poly_class else "Non_poly",
                     "timestamp": datetime.now(timezone.utc).isoformat()
                 }
-                insert_detection_data(detection_data)
+                insert_detection_data(detections_collection_cam1, detection_data)
 
                 # Draw bounding box and labels
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 255, 0), 2)
-                cv2.putText(frame, class_name_with_confidence, (x1, y1 - 10),
+                cv2.putText(frame, f"{object_name} ({int(conf * 100)}%)", (x1, y1 - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-
-                if cover_class:
-                    cv2.putText(frame, f"Cover: {cover_class}", (x1, y2 + 20),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
-                if poly_class:
-                    cv2.putText(frame, f"Poly: {poly_class}", (x1, y2 + 40),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-                if dry_wet_class:
-                    cv2.putText(frame, f"{dry_wet_class}", (x1, y2 + 60),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-                cv2.putText(frame, f"Distance: {estimated_distance:.2f}m", (x1, y2 + 80),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
 
         # Draw boundary curve
         frame = draw_curved_boundary(frame)
@@ -180,10 +151,61 @@ def generate_video():
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
 
-# Video stream route
-@app.route('/video_feed')
-def video_feed():
-    return Response(generate_video(), mimetype='multipart/x-mixed-replace; boundary=frame')
+# Process Camera 2 Feed
+def process_camera2():
+    global last_frame_time
+
+    while True:
+        current_time = time.time()
+        if current_time - last_frame_time < 1 / fps_limit:
+            time.sleep(0.01)
+            continue
+
+        frame = fetch_frame(camera=2)
+        if frame is None:
+            print("Failed to fetch frame from Camera 2.")
+            time.sleep(0.5)
+            continue
+
+        # Detect dry or wet
+        dry_wet_results = dry_wet_model.predict(source=frame, conf=0.5, show=False)
+        for result in dry_wet_results:
+            for box in result.boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                conf = box.conf[0].item()
+                class_id = box.cls[0].item()
+
+                if conf < 0.5:
+                    continue
+
+                object_name = dry_wet_model.names[int(class_id)]
+
+                # Save detection data to MongoDB
+                detection_data = {
+                    "camera": "camera2",
+                    "object": object_name,
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }
+                insert_detection_data(detections_collection_cam2, detection_data)
+
+                # Draw bounding box and labels
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 255, 0), 2)
+                cv2.putText(frame, f"{object_name} ({int(conf * 100)}%)", (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
+        # Encode frame as JPEG and yield for video stream
+        _, jpeg = cv2.imencode('.jpg', frame)
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
+
+# Video stream routes
+@app.route('/camera1_feed')
+def camera1_feed():
+    return Response(process_camera1(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/camera2_feed')
+def camera2_feed():
+    return Response(process_camera2(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='192.168.1.50', port=5000)  # Use specific host IP
