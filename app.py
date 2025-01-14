@@ -44,9 +44,9 @@ def insert_detection_data(collection, data):
 
 # Load YOLO models
 garbage_model = YOLO("garbage_model_path.pt")
-cover_noncover_model = YOLO("cover_noncover_model_path.pt")
+#cover_noncover_model = YOLO("cover_noncover_model_path.pt")
 polythene_nonpoly_model = YOLO("polythene_nonpoly_model_path.pt")
-dry_wet_model = YOLO("dry_wet_model_path.pt")
+#dry_wet_model = YOLO("dry_wet_model_path.pt")
 bio_nonBio_model = YOLO("bio_nonBio_model_path.pt")
 
 # Constants
@@ -116,11 +116,11 @@ def process_camera1():
                 object_name = garbage_model.names[int(class_id)]
                 cropped_garbage = frame[y1:y2, x1:x2]
 
-                # Detect cover or uncover status
+                '''# Detect cover or uncover status
                 cover_results = cover_noncover_model.predict(source=cropped_garbage, conf=0.5, show=False)
                 cover_class = None
                 if cover_results and cover_results[0].boxes:
-                    cover_class = cover_noncover_model.names[int(cover_results[0].boxes[0].cls[0])]
+                    cover_class = cover_noncover_model.names[int(cover_results[0].boxes[0].cls[0])]'''
 
                 # Detect polythene or non-polythene
                 poly_results = polythene_nonpoly_model.predict(source=cropped_garbage, conf=0.7, show=False)
@@ -132,7 +132,7 @@ def process_camera1():
                 detection_data = {
                     "camera": "camera1",
                     "object": object_name,
-                    "cover_status": cover_class if cover_class else "Non_cover",
+                   # "cover_status": cover_class if cover_class else "Non_cover",
                     "poly_status": poly_class if poly_class else "Non_poly",
                     "timestamp": datetime.now(timezone.utc).isoformat()
                 }
@@ -167,6 +167,38 @@ def process_camera2():
             time.sleep(0.5)
             continue
 
+        # Detect bio or non-bio
+        bio_nonBio_results = bio_nonBio_model.predict(source=frame, conf=0.5, show=False)
+        for result in bio_nonBio_results:
+            for box in result.boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                conf = box.conf[0].item()
+                class_id = box.cls[0].item()
+
+                if conf < 0.5:
+                    continue
+
+                object_name = bio_nonBio_model.names[int(class_id)]
+
+                # Save detection data to MongoDB
+                detection_data = {
+                    "camera": "camera2",
+                    "object": object_name,
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }
+                insert_detection_data(detections_collection_cam2, detection_data)
+
+                # Draw bounding box and labels
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(frame, f"{object_name} ({int(conf * 100)}%)", (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
+        # Encode frame as JPEG and yield for video stream
+        _, jpeg = cv2.imencode('.jpg', frame)
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
+        
+        '''----------------> Here the dry/wet model is running<-----------------
         # Detect dry or wet
         dry_wet_results = dry_wet_model.predict(source=frame, conf=0.5, show=False)
         for result in dry_wet_results:
@@ -191,7 +223,7 @@ def process_camera2():
                 # Draw bounding box and labels
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 255, 0), 2)
                 cv2.putText(frame, f"{object_name} ({int(conf * 100)}%)", (x1, y1 - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)'''
 
         # Encode frame as JPEG and yield for video stream
         _, jpeg = cv2.imencode('.jpg', frame)
