@@ -2,7 +2,7 @@ import pickle
 
 # Define metadata for garbage detection model
 garbage_model_metadata = {
-    "model_path": "garbagev1.pt",
+    "model_path": "Garbage_v2.pt",
 }
 
 # Define metadata for dry/wet classification model
@@ -22,7 +22,7 @@ polythene_nonpoly_model_metadata = {
 
 # Define metadata for Bio_Non-Biodegradable classification model
 Bio_Non_Biodegradable_model_metadata = {
-    "model_path": "bio_nonBio_model.pt",
+    "model_path": "biogas.pt",
 }
 
 # Combine all models' metadata
