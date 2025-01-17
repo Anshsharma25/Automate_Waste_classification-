@@ -81,14 +81,14 @@ def process_camera1():
             continue
 
         # Detect garbage
-        garbage_results = garbage_model.predict(source=frame, conf=0.5, show=False)
+        garbage_results = garbage_model.predict(source=frame, conf=0.40, show=False)
         for result in garbage_results:
             for box in result.boxes:
                 x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                 conf = box.conf[0].item()
                 class_id = box.cls[0].item()
 
-                if conf < 0.5:
+                if conf < 0.40:
                     continue
 
                 object_name = garbage_model.names[int(class_id)]
