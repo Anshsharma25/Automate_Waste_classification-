@@ -5,7 +5,6 @@ import numpy as np
 from pymongo import MongoClient
 from datetime import datetime, timezone
 from urllib.parse import quote_plus
-import requests
 import threading
 
 # MongoDB Setup
@@ -49,17 +48,6 @@ ESP32_CAM_URL_2 = "http://192.168.1.3/cam-hi.jpg"  # Camera 2 URL
 fps_limit = 30  # Adjust FPS limit to balance performance
 last_frame_time = 0
 
-# Function to fetch a frame from the camera
-def fetch_frame(camera_url):
-    try:
-        response = requests.get(camera_url, stream=True, timeout=5)
-        if response.status_code == 200:
-            img_array = np.asarray(bytearray(response.content), dtype=np.uint8)
-            return cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-    except Exception as e:
-        print(f"Error fetching frame: {e}")
-    return None
-
 # Function to draw a curved boundary
 def draw_curved_boundary(frame):
     frame_height, frame_width = frame.shape[:2]
@@ -79,10 +67,24 @@ def draw_curved_boundary(frame):
 
     return frame
 
-# Function to process Camera 1 feed
+# Function to fetch a frame from the camera with OpenCV
+def fetch_frame(camera_url):
+    try:
+        # Use OpenCV to capture the frame from the camera URL
+        cap = cv2.VideoCapture(camera_url)
+        if cap.isOpened():
+            ret, frame = cap.read()
+            cap.release()
+            if ret:
+                return frame
+        print(f"Error fetching frame from {camera_url}.")
+    except Exception as e:
+        print(f"Error fetching frame: {e}")
+    return None
+
+# Function to process Camera 1 feed and return frames for Flask to display
 def process_camera1():
     global last_frame_time
-
     while True:
         current_time = time.time()
         if current_time - last_frame_time < 1 / fps_limit:
@@ -140,24 +142,30 @@ def process_camera1():
                 cv2.putText(frame, f"Poly: {poly_class}", (x1, y2 + 20),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-        # Draw boundary curve
-        frame = draw_curved_boundary(frame)
+        # Encode frame as JPEG image
+        ret, jpeg = cv2.imencode('.jpg', frame)
+        if not ret:
+            return None
+        return jpeg.tobytes()
 
-# Function to process Camera 2 feed
+# Function to process Camera 2 feed and return frames for Flask to display
 def process_camera2():
     global last_frame_time
-
     while True:
         current_time = time.time()
         if current_time - last_frame_time < 1 / fps_limit:
             time.sleep(0.01)
             continue
 
+        # Fetch frame from camera
         frame = fetch_frame(ESP32_CAM_URL_2)
         if frame is None:
             print("Failed to fetch frame from Camera 2.")
             time.sleep(0.5)
             continue
+
+        # Downscale frame for faster processing (optional)
+        frame = cv2.resize(frame, (640, 480))  # Adjust size as needed
 
         # Detect bio or non-bio garbage
         bio_results = bio_nonBio_model.predict(source=frame, conf=0.50, show=False)
@@ -186,3 +194,8 @@ def process_camera2():
                 cv2.putText(frame, f"{object_name} ({int(conf * 100)}%)", (x1, y1 - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
 
+        # Encode frame as JPEG image
+        ret, jpeg = cv2.imencode('.jpg', frame)
+        if not ret:
+            return None
+        return jpeg.tobytes()
