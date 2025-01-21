@@ -82,7 +82,7 @@ def fetch_frame(camera_url):
         print(f"Error fetching frame: {e}")
     return None
 
-# Function to process Camera 1 feed and return frames for Flask to display
+# Function to process Camera 1 feed and return frames for Flask to display with curved boundary
 def process_camera1():
     global last_frame_time
     while True:
@@ -91,11 +91,16 @@ def process_camera1():
             time.sleep(0.01)
             continue
 
+        start_time = time.time()  # Track the time before starting detection
+
         frame = fetch_frame(ESP32_CAM_URL_1)
         if frame is None:
             print("Failed to fetch frame from Camera 1.")
             time.sleep(0.5)
             continue
+
+        # Draw the curved boundary on the frame
+        frame = draw_curved_boundary(frame)
 
         # Detect garbage
         garbage_results = garbage_model.predict(source=frame, conf=0.40, show=False)
@@ -141,6 +146,10 @@ def process_camera1():
                 # Add polythene detection label
                 cv2.putText(frame, f"Poly: {poly_class}", (x1, y2 + 20),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+        end_time = time.time()  # Track the time after detection
+        detection_time = end_time - start_time
+        print(f"Detection time for Camera 1: {detection_time:.4f} seconds")
 
         # Encode frame as JPEG image
         ret, jpeg = cv2.imencode('.jpg', frame)
