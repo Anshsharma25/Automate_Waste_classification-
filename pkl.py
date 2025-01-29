@@ -1,19 +1,19 @@
 import pickle
 
-# Define metadata for garbage detection model
-garbage_model_metadata = {
-    "model_path": "Garbage_v2.pt",
-}
+# # Define metadata for garbage detection model
+# garbage_model_metadata = {
+#     "model_path": "Garbage_v2.pt",
+# }
 
-# Define metadata for dry/wet classification model
-drywet_model_metadata = {
-    "model_path": "Main_DW.pt",
-}
+# # Define metadata for dry/wet classification model
+# drywet_model_metadata = {
+#     "model_path": "Main_DW.pt",
+# }
 
-# Define metadata for cover/uncover classification model
-cover_uncover_model_metadata = {
-    "model_path": "covermodel.pt",
-}
+# # Define metadata for cover/uncover classification model
+# cover_uncover_model_metadata = {
+#     "model_path": "covermodel.pt",
+# }
 
 # Define metadata for polythene/non-polythene classification model
 polythene_nonpoly_model_metadata = {
@@ -27,9 +27,9 @@ Bio_Non_Biodegradable_model_metadata = {
 
 # Combine all models' metadata
 all_models_metadata = {
-    "garbage_model": garbage_model_metadata,
-    "drywet_model": drywet_model_metadata,
-    "cover_uncover_model": cover_uncover_model_metadata,
+    # "garbage_model": garbage_model_metadata,
+    # "drywet_model": drywet_model_metadata,
+    # "cover_uncover_model": cover_uncover_model_metadata,
     "polythene_nonpoly_model": polythene_nonpoly_model_metadata,
     "bio_nonBio_model": Bio_Non_Biodegradable_model_metadata
 }

@@ -38,34 +38,16 @@ def insert_detection_data(collection, data):
         print(f"Error saving data to MongoDB ({collection.name}): {e}")
 
 # Load YOLO models
-garbage_model = YOLO("Garbage_v2.pt")
+# garbage_model = YOLO("Garbage_v2.pt")
 polythene_nonpoly_model = YOLO("poly_non_poly.pt")
 bio_nonBio_model = YOLO("biogas.pt")
 
 # Constants
-ESP32_CAM_URL_1 = "http://192.168.1.101/cam-hi.jpg"  # Camera 1 URL
+ESP32_CAM_URL_1 = "http://192.168.1.104/capture.jpg"  # Camera 1 URL
 ESP32_CAM_URL_2 = "http://192.168.1.3/cam-hi.jpg"  # Camera 2 URL
 fps_limit = 30  # Adjust FPS limit to balance performance
 last_frame_time = 0
 
-# Function to draw a curved boundary
-def draw_curved_boundary(frame):
-    frame_height, frame_width = frame.shape[:2]
-    curve_depth = 30
-    curve_center_y = frame_height // 2
-
-    num_points = frame_width
-    curve_points = []
-
-    for x in range(num_points):
-        t = x / (frame_width - 1)
-        y = curve_center_y + int(curve_depth * np.sin(np.pi * t))
-        curve_points.append((x, y))
-
-    for i in range(len(curve_points) - 1):
-        cv2.line(frame, curve_points[i], curve_points[i + 1], (0, 255, 0), 2)
-
-    return frame
 
 # Function to fetch a frame from the camera with OpenCV
 def fetch_frame(camera_url):
@@ -82,7 +64,7 @@ def fetch_frame(camera_url):
         print(f"Error fetching frame: {e}")
     return None
 
-# Function to process Camera 1 feed and return frames for Flask to display with curved boundary
+# Function to process Camera 2 feed and return frames for Flask to display
 def process_camera1():
     global last_frame_time
     while True:
@@ -91,71 +73,49 @@ def process_camera1():
             time.sleep(0.01)
             continue
 
-        start_time = time.time()  # Track the time before starting detection
-
+        # Fetch frame from camera
         frame = fetch_frame(ESP32_CAM_URL_1)
         if frame is None:
-            print("Failed to fetch frame from Camera 1.")
+            print("Failed to fetch frame from Camera 2.")
             time.sleep(0.5)
             continue
 
-        # Draw the curved boundary on the frame
-        frame = draw_curved_boundary(frame)
+        # Downscale frame for faster processing (optional)
+        frame = cv2.resize(frame, (640, 480))  # Adjust size as needed
 
-        # Detect garbage
-        garbage_results = garbage_model.predict(source=frame, conf=0.40, show=False)
-        for result in garbage_results:
+        # Detect bio or non-bio garbage
+        poly_results = polythene_nonpoly_model.predict(source=frame, conf=0.50, show=False)
+        for result in poly_results:
             for box in result.boxes:
                 x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                 conf = box.conf[0].item()
                 class_id = box.cls[0].item()
 
-                if conf < 0.40:
+                if conf < 0.50:
                     continue
 
-                # Detected garbage object
-                object_name = garbage_model.names[int(class_id)]
-                cropped_garbage = frame[y1:y2, x1:x2]
-
-                # Detect polythene or non-polythene only on the garbage image
-                poly_results = polythene_nonpoly_model.predict(source=cropped_garbage, conf=0.7, show=False)
-                poly_class = None
-                if poly_results and len(poly_results[0].boxes) > 0:
-                    poly_class_id = poly_results[0].boxes[0].cls[0].item()
-                    poly_class = polythene_nonpoly_model.names[int(poly_class_id)]
-                else:
-                    poly_class = "Non_poly"  # Default if no polythene detected
-
-                # Print the polythene or non-polythene result
-                print(f"Polythene status: {poly_class}")
+                # Detected bio or non-bio object
+                object_name = polythene_nonpoly_model.names[int(class_id)]
 
                 # Save detection data to MongoDB
                 detection_data = {
                     "camera": "camera1",
                     "object": object_name,
-                    "poly_status": poly_class,
                     "timestamp": datetime.now(timezone.utc).isoformat()
                 }
                 insert_detection_data(detections_collection_cam1, detection_data)
 
-                # Draw bounding box and labels for garbage
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 255, 0), 2)
+                # Draw bounding box and labels
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
                 cv2.putText(frame, f"{object_name} ({int(conf * 100)}%)", (x1, y1 - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-
-                # Add polythene detection label
-                cv2.putText(frame, f"Poly: {poly_class}", (x1, y2 + 20),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
-        end_time = time.time()  # Track the time after detection
-        detection_time = end_time - start_time
-        print(f"Detection time for Camera 1: {detection_time:.4f} seconds")
 
         # Encode frame as JPEG image
         ret, jpeg = cv2.imencode('.jpg', frame)
         if not ret:
             return None
         return jpeg.tobytes()
+
 
 # Function to process Camera 2 feed and return frames for Flask to display
 def process_camera2():
