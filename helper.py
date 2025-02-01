@@ -52,13 +52,14 @@ fps_limit = 30  # Adjust FPS limit to balance performance
 last_frame_time = 0
 
 # Function to process ultrasonic sensor data and save it to MongoDB
-def process_ultrasonic_data(flag, timestamp):
+def process_ultrasonic_data(flag, timestamp, distance):
     if flag not in [0, 1]:
         return {"error": "Invalid flag value. Must be 0 or 1."}, 400
 
     detection_data = {
         "flag": flag,
-        "timestamp": timestamp
+        "timestamp": datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S"),
+        "distance": distance
     }
 
     # Insert data into MongoDB and get the inserted document ID
@@ -66,9 +67,10 @@ def process_ultrasonic_data(flag, timestamp):
     
     # Return the response with inserted document ID (ObjectId converted to string for JSON serialization)
     response_data = {
-        "_id": str(inserted_doc.inserted_id),  # Convert ObjectId to string for JSON serialization
+        "_id": str(inserted_doc.inserted_id),
         "flag": flag,
-        "timestamp": timestamp
+        "timestamp": timestamp,
+        "distance": distance
     }
     
     return response_data, 200
@@ -88,6 +90,7 @@ def fetch_frame(camera_url):
         print(f"Error fetching frame: {e}")
     return None
 
+# ✅ Function to process Camera 1 feed (Polythene Detection)
 # ✅ Function to process Camera 1 feed (Polythene Detection)
 def process_camera1():
     global last_frame_time
@@ -117,13 +120,24 @@ def process_camera1():
 
                 object_name = polythene_nonpoly_model.names[int(class_id)]
 
+                # Add the detection column for polythene detection (1 if detected)
+                detection_status = 1 if object_name.lower() == "polythene" else 0
+
                 detection_data = {
                     "camera": "camera1",
                     "object": object_name,
-                    "timestamp": datetime.now(timezone.utc).isoformat()
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "polythene_detected": detection_status  # New column to store detection status
                 }
+
+                # Print the detection status for polythene
+                if detection_status == 1:
+                    print(f"Polythene detected! Detection Status: {detection_status}")
+
+                # Insert the detection data into MongoDB
                 insert_detection_data(polythene_collection, detection_data)
 
+                # Draw bounding box and label on the frame
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
                 cv2.putText(frame, f"{object_name} ({int(conf * 100)}%)", (x1, y1 - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
@@ -132,6 +146,7 @@ def process_camera1():
         if not ret:
             return None
         return jpeg.tobytes()
+
 
 # ✅ Function to process Camera 2 feed (Bio vs. Non-Bio Detection)
 def process_camera2():
