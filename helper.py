@@ -18,15 +18,17 @@ try:
     mongo_client = MongoClient(MONGO_URI)
     db = mongo_client[DATABASE_NAME]
     
-    # Collections for different sensors
-    ultrasonic_collection = db["ultrasonic_data"]
+    # Collections
+    sensor_collection = db["sensor_data"]
     polythene_collection = db["polythene_data"]
     bio_collection = db["bio_data"]
+    final_match_collection = db["final_match"]
 
-    # Set TTL (Time to Live) for collections (Data expires after 2 hours)
-    ultrasonic_collection.create_index("timestamp", expireAfterSeconds=7200)
+    # Set TTL (Expire data after 2 hours)
+    sensor_collection.create_index("timestamp", expireAfterSeconds=7200)
     polythene_collection.create_index("timestamp", expireAfterSeconds=7200)
     bio_collection.create_index("timestamp", expireAfterSeconds=7200)
+    final_match_collection.create_index("timestamp", expireAfterSeconds=7200)
 
     print("Connected to MongoDB successfully.")
 except Exception as e:
@@ -51,29 +53,76 @@ ESP32_CAM_URL_2 = "http://192.168.1.104/capture.jpg"  # Camera 2 URL
 fps_limit = 30  # Adjust FPS limit to balance performance
 last_frame_time = 0
 
-# Function to process ultrasonic sensor data and save it to MongoDB
-def process_ultrasonic_data(flag, timestamp, distance):
-    if flag not in [0, 1]:
-        return {"error": "Invalid flag value. Must be 0 or 1."}, 400
+# Store Sensor Data
+def store_sensor_data(data):
+    try:
+        distance = float(data['distance'])
+        flag = int(data['flag'])
 
-    detection_data = {
-        "flag": flag,
-        "timestamp": datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S"),
-        "distance": distance
-    }
+        timestamp = datetime.now()
 
-    # Insert data into MongoDB and get the inserted document ID
-    inserted_doc = ultrasonic_collection.insert_one(detection_data)
-    
-    # Return the response with inserted document ID (ObjectId converted to string for JSON serialization)
-    response_data = {
-        "_id": str(inserted_doc.inserted_id),
-        "flag": flag,
-        "timestamp": timestamp,
-        "distance": distance
-    }
-    
-    return response_data, 200
+        sensor_entry = {
+            "timestamp": timestamp,
+            "distance": distance,
+            "flag": flag,
+            "detection_status": "Object detected" if flag == 1 else "No object detected"
+        }
+
+        sensor_collection.insert_one(sensor_entry)
+        print("Data saved to MongoDB (sensor_data).")
+
+        return {"message": "Data received successfully", "distance": distance, "flag": flag}, 200
+    except Exception as e:
+        print(f"Error saving data to MongoDB: {e}")
+        return {"error": "Error saving data to MongoDB", "message": str(e)}, 500
+
+# Store Matched Data in Final Match Collection
+def process_and_store_matching_data():
+    try:
+        polythene_data = polythene_collection.find({"polythene_detected": 1})
+        for poly in polythene_data:
+            sensor_data = sensor_collection.find({"flag": 1})
+            for sensor in sensor_data:
+                bio_data = bio_collection.find({"bio_detected": 1})  # Fetch Bio data
+                
+                for bio in bio_data:
+                    if poly["polythene_detected"] == 1 and sensor["flag"] == 1 and bio["bio_detected"] == 1:
+                        final_match_entry = {
+                            "timestamp": datetime.now(),
+                            "polythene_data": poly,
+                            "sensor_data": sensor,
+                            "bio_data": bio,
+                            "message": "555"  # Print 555 as required
+                        }
+                        final_match_collection.insert_one(final_match_entry)
+                        print("555")  # Print 555 for verification
+
+    except Exception as e:
+        print(f"Error processing and storing matching data: {e}")
+
+# Load YOLO models
+polythene_nonpoly_model = YOLO("poly_non_poly.pt")
+bio_nonBio_model = YOLO("biogas.pt")
+
+# Constants
+ESP32_CAM_URL_1 = "http://192.168.1.104/capture.jpg"
+ESP32_CAM_URL_2 = "http://192.168.1.104/capture.jpg"
+fps_limit = 30  
+last_frame_time = 0
+
+# Fetch Camera Frame
+def fetch_frame(camera_url):
+    try:
+        cap = cv2.VideoCapture(camera_url)
+        if cap.isOpened():
+            ret, frame = cap.read()
+            cap.release()
+            if ret:
+                return frame
+        print(f"Error fetching frame from {camera_url}.")
+    except Exception as e:
+        print(f"Error fetching frame: {e}")
+    return None
 
 
 # ✅ Function to fetch a frame from the camera with OpenCV
