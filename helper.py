@@ -139,7 +139,7 @@ def fetch_frame(camera_url):
         print(f"Error fetching frame: {e}")
     return None
 
-# ✅ Function to process Camera 1 feed (Polythene Detection)
+
 # ✅ Function to process Camera 1 feed (Polythene Detection)
 def process_camera1():
     global last_frame_time
