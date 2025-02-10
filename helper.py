@@ -49,8 +49,8 @@ bio_nonBio_model = YOLO("biogas.pt")
 
 # Constants
 ESP32_CAM_URL_1 = "http://192.168.1.104/capture.jpg"  # Camera 1 URL
-ESP32_CAM_URL_2 = "http://192.168.1.104/capture.jpg"  # Camera 2 URL
-fps_limit = 30  # Adjust FPS limit to balance performance
+ESP32_CAM_URL_2 = "http://192.168.1.104/cam-hi.jpg"  # Camera 2 URL
+fps_limit = 3 # Adjust FPS limit to balance performance
 last_frame_time = 0
 
 # Store Sensor Data
@@ -105,9 +105,9 @@ polythene_nonpoly_model = YOLO("poly_non_poly.pt")
 bio_nonBio_model = YOLO("biogas.pt")
 
 # Constants
-ESP32_CAM_URL_1 = "http://192.168.1.104/capture.jpg"
-ESP32_CAM_URL_2 = "http://192.168.1.104/capture.jpg"
-fps_limit = 30  
+ESP32_CAM_URL_1 = "http://192.168.1.105/capture.jpg"
+ESP32_CAM_URL_2 = "http://192.168.1.104/cam-hi.jpg"
+fps_limit = 3  
 last_frame_time = 0
 
 # Fetch Camera Frame
@@ -181,7 +181,7 @@ def process_camera1():
 
                 # Print the detection status for polythene
                 if detection_status == 1:
-                    print(f"Polythene detected! Detection Status: {detection_status}")
+                    print(f"Polythene detected! Destection Status: {detection_status}")
 
                 # Insert the detection data into MongoDB
                 insert_detection_data(polythene_collection, detection_data)
