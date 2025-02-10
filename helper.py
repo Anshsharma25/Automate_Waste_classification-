@@ -50,7 +50,7 @@ bio_nonBio_model = YOLO("biogas.pt")
 # Constants
 ESP32_CAM_URL_1 = "http://192.168.1.104/capture.jpg"  # Camera 1 URL
 ESP32_CAM_URL_2 = "http://192.168.1.104/cam-hi.jpg"  # Camera 2 URL
-fps_limit = 3 # Adjust FPS limit to balance performance
+fps_limit = 30 # Adjust FPS limit to balance performance
 last_frame_time = 0
 
 
