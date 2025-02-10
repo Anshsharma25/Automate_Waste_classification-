@@ -53,6 +53,7 @@ ESP32_CAM_URL_2 = "http://192.168.1.104/cam-hi.jpg"  # Camera 2 URL
 fps_limit = 3 # Adjust FPS limit to balance performance
 last_frame_time = 0
 
+
 # Store Sensor Data
 def store_sensor_data(data):
     try:
