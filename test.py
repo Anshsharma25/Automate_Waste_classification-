@@ -12,8 +12,8 @@ model = YOLO("biogas.pt")  # Load YOLO model
 arduino = serial.Serial(port="COM11", baudrate=9600, timeout=1)
 time.sleep(2)  # Allow Arduino to initialize
 
-# Define angles (Only 0° and 90°)
-rotation_angles = [0, 90]
+# Define a single angle (0°)
+rotation_angle = 0
 
 def send_command(cmd):
     """Send a command to Arduino and print its response."""
@@ -65,28 +65,23 @@ def detect_objects(frame):
     return detected_objects
 
 def main():
-    """Main loop to rotate plate between 0° and 90°, detect objects, and activate robotic hand."""
-    for angle in rotation_angles:
-        print(f"\n🔄 --- Moving Plate to {angle}° ---")
-        send_command(f"ROTATE:{angle}")  # Command to rotate plate
-        time.sleep(3)  # Wait for plate to move
+    """Main loop to detect objects at a fixed 0° angle and activate robotic hand if needed."""
+    print(f"\n🔄 --- Moving Plate to {rotation_angle}° ---")
+    send_command(f"ROTATE:{rotation_angle}")  # Command to rotate plate to 0°
+    time.sleep(3)  # Wait for plate to move
 
-        print("\n📸 --- Capturing Image ---")
-        frame = capture_image()
-        if frame is None:
-            continue  # Skip to next iteration if image capture fails
+    print("\n📸 --- Capturing Image ---")
+    frame = capture_image()
+    if frame is None:
+        return  # Exit if image capture fails
 
-        print("\n🔍 --- Running Object Detection ---")
-        detected_objects = detect_objects(frame)
+    print("\n🔍 --- Running Object Detection ---")
+    detected_objects = detect_objects(frame)
 
-        if detected_objects:
-            print("\n🤖 --- Activating Robotic Hand ---")
-            send_command("MOVE")  # Trigger robotic hand
-            time.sleep(3)  # Allow time for hand movement
-
-        print("\n🔄 --- Moving Plate to Next Position ---")
-        send_command("NEXT_POSITION")
-        time.sleep(2)  # Allow plate to move
+    if detected_objects:
+        print("\n🤖 --- Activating Robotic Hand ---")
+        send_command("MOVE")  # Trigger robotic hand
+        time.sleep(3)  # Allow time for hand movement
 
     print("✅ Process Completed Successfully!")
 
