@@ -64,24 +64,44 @@ def detect_objects(frame):
     print(f"📂 Detection result saved as '{result_filename}'.")
     return detected_objects
 
-def main():
-    """Main loop to detect objects at a fixed 0° angle and activate robotic hand if needed."""
-    print(f"\n🔄 --- Moving Plate to {rotation_angle}° ---")
-    send_command(f"ROTATE:{rotation_angle}")  # Command to rotate plate to 0°
-    time.sleep(3)  # Wait for plate to move
-
-    print("\n📸 --- Capturing Image ---")
+def check_bucket():
+    """Check if there are objects in the bucket after processing."""
+    print("\n📸 --- Checking Bucket for Remaining Objects ---")
     frame = capture_image()
     if frame is None:
-        return  # Exit if image capture fails
-
-    print("\n🔍 --- Running Object Detection ---")
+        return False  # If capture fails, assume bucket is empty
+    
     detected_objects = detect_objects(frame)
-
     if detected_objects:
-        print("\n🤖 --- Activating Robotic Hand ---")
-        send_command("MOVE")  # Trigger robotic hand
-        time.sleep(3)  # Allow time for hand movement
+        print("🛑 Objects still in the bucket! Restarting process...")
+        return True
+    else:
+        print("✅ Bucket is empty. Process complete!")
+        return False
+
+def main():
+    """Main loop to detect objects at a fixed 0° angle and activate robotic hand if needed."""
+    while True:
+        print(f"\n🔄 --- Moving Plate to {rotation_angle}° ---")
+        send_command(f"ROTATE:{rotation_angle}")  # Command to rotate plate to 0°
+        time.sleep(3)  # Wait for plate to move
+
+        print("\n📸 --- Capturing Image ---")
+        frame = capture_image()
+        if frame is None:
+            return  # Exit if image capture fails
+
+        print("\n🔍 --- Running Object Detection ---")
+        detected_objects = detect_objects(frame)
+
+        if detected_objects:
+            print("\n🤖 --- Activating Robotic Hand ---")
+            send_command("MOVE")  # Trigger robotic hand
+            time.sleep(3)  # Allow time for hand movement
+
+        # Check if the bucket has objects remaining
+        if not check_bucket():
+            break  # Exit loop if bucket is empty
 
     print("✅ Process Completed Successfully!")
 
