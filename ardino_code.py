@@ -10,7 +10,7 @@ from ultralytics import YOLO
 model = YOLO("biogas.pt")  # Load YOLO model
 
 # Initialize serial communication with Arduino (update port if needed)
-arduino = serial.Serial(port="COM6", baudrate=9600, timeout=1)
+arduino = serial.Serial(port="COM4", baudrate=9600, timeout=1)
 time.sleep(2)  # Allow Arduino to initialize
 
 # ESP8266 IP Address (update as needed)
@@ -85,6 +85,28 @@ def detect_objects(frame):
 
     return detected_flags
 
+def move_plate_and_process(flag):
+    """Move plate based on detection flag, activate robotic hand, drop object, and reset bucket."""
+    if flag in [1, 2, 3, 4, 5]:  # Ensure flag is valid
+        angle = rotation_angles[flag % len(rotation_angles)]  # Select angle based on flag
+        print(f"\n🔄 Moving Plate to {angle}° for Flag: {flag}")
+        send_command(f"ROTATE:{angle}")
+        time.sleep(3)
+
+        print("\n🤖 Activating Robotic Hand to Pick & Drop Object")
+        send_command("PICK_OBJECT")  # Command to pick the object
+        time.sleep(3)
+
+        print("\n🗑 Dropping Object into Bucket")
+        send_command("DROP_OBJECT")  # Command to release the object
+        time.sleep(2)
+
+        print("\n↩ Moving Bucket Back to Original Position")
+        send_command("RESET_BUCKET")  # Command to reset the bucket
+        time.sleep(2)
+    else:
+        print("⚠ No valid flag detected, skipping plate movement.")
+
 def main():
     """Main loop to rotate plate, capture images, detect objects, and activate robotic hand."""
     print("🔄 --- Rotating Plate at Full Speed for 4 Seconds ---")
@@ -104,13 +126,12 @@ def main():
             continue
 
         print("\n🔍 --- Running Object Detection ---")
-        detect_objects(frame)
+        detected_flags = detect_objects(frame)
 
-        print("\n🤖 --- Activating Robotic Hand ---")
-        send_command("MOVE")
-        time.sleep(3)
-    
+        for flag in detected_flags:
+            move_plate_and_process(flag)
+
     print("✅ Process Completed Successfully!")
 
-if __name__ == "__main__":
+if _name_ == "_main_":
     main()
