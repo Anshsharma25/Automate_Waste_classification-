@@ -7,13 +7,12 @@ app = Flask(__name__)
 # MongoDB Setup
 username = quote_plus("dustbin")  # Replace with your MongoDB username
 password = quote_plus("Dustbin@123")  # Replace with your MongoDB password
-# MONGO_URI = f"mongodb+srv://{username}:{password}@cluster0.fmudd.mongodb.net/"
 MONGO_URI = f"mongodb+srv://{username}:{password}@cluster0.fmudd.mongodb.net/"
 DATABASE_NAME = "garbage_detection"
 COLLECTION_NAME = "dustbin_status_random1"  # Collection name
 
 # Connect to MongoDB
-client = MongoClient(MONGO_URI) 
+client = MongoClient(MONGO_URI)
 db = client[DATABASE_NAME]
 collection = db[COLLECTION_NAME]
 print("Connected to MongoDB. Collections:", db.list_collection_names())
