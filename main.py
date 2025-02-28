@@ -95,8 +95,6 @@ def detect_polythene(image_path):
     return False
 
 def process_first_layer(cam_1):
-
-    
     """Handles polythene detection and cutting mechanism."""
     frame = capture_frame(cam_1)
     if frame is None:
