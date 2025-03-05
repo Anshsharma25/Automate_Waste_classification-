@@ -8,20 +8,14 @@ from ultralytics import YOLO
 from exception import CustomException as e
 from logger import logging
 
-MAX_HEIGHT = 400
-MAX_WIDTH = 400
-
-RED_BOX_X1, RED_BOX_Y1 = 150, 200
-RED_BOX_X2, RED_BOX_Y2 = 400, 300
-
-model_poly = YOLO(r"models\poly_non_poly.pt")
+# Initialize YOLO Models
 model_biogas = YOLO(r"models\biogas.pt")
 
-logging.info("Models have been loaded.")
+logging.info("Model has been loaded.")
 
-arduino = serial.Serial(port="COM3", baudrate=9600, timeout=1)  
+# Initialize Serial Communication with Arduino
+arduino = serial.Serial(port="COM4", baudrate=9600, timeout=1)
 time.sleep(2)
-
 logging.info("Arduino connected.")
 
 ESP8266_IP = "192.168.1.17"
@@ -29,10 +23,11 @@ ESP8266_IP = "192.168.1.17"
 class_to_flag = {
     'non-biodegradable': 1,
     'biodegradable': 2,
-    'common': 3,
-    'nonbiogasready': 5,
-    'biogasready': 4
+    'common': 3
 }
+
+region_pts = np.array([[150, 100], [100, 400], [450, 400], [450, 150]], np.int32)
+region_pts = region_pts.reshape((-1, 1, 2))
 
 def send_command(cmd):
     arduino.write(cmd.encode())
@@ -46,112 +41,70 @@ def send_flag(flag):
     try:
         response = requests.get(url, timeout=5)
         print(f"ESP8266 Response: {response.text}")
-        logging.info(f"Response '{response.text}' sent.")
     except Exception as e:
         print(f"Error communicating with ESP8266: {e}")
 
 def capture_frame(cam_url):
     cap = cv2.VideoCapture(cam_url)
     time.sleep(2)
-    
     ret, frame = cap.read()
     cap.release()
-    
     if not ret:
         print("Failed to grab frame")
         return None
-    
-    image_path = "temp.jpg"
-    cv2.imwrite(image_path, frame)
-    logging.info(f"Camera shot '{cam_url}' captured successfully.")
+    cv2.imwrite("temp.jpg", frame)
     return frame
 
-def detect_polythene(image_path):
-    results = model_poly(image_path)
+def detect_biodegradable(frame):
+    results = model_biogas(frame)
+    detected_classes = []
+    region_count = 0
     
     for result in results:
         for box in result.boxes:
             class_id = int(box.cls[0])
-            detected_class = model_poly.names[class_id]
-            logging.info(f"Class detected: {detected_class}")
-            print(f"Detected: {detected_class}")
-            if detected_class.lower() == "polythene":
-                return True
-    return False
+            detected_class = model_biogas.names[class_id]
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            center_x = (x1 + x2) // 2
+            center_y = (y1 + y2) // 2
 
-def process_first_layer(cam_1):
-    frame = capture_frame(cam_1)
+            if cv2.pointPolygonTest(region_pts, (center_x, center_y), False) >= 0:
+                detected_classes.append(detected_class)
+                region_count += 1
+    
+    return detected_classes, region_count
+
+def process_layer(cam_2):
+    send_command("MOVE_FAST")  # Move plate quickly
+    time.sleep(2)
+    send_command("STOP")  # Stop plate
+
+    frame = capture_frame(cam_2)
     if frame is None:
         return
     
-    polythene_detected = detect_polythene("temp.jpg")
+    detected_classes, region_count = detect_biodegradable(frame)
+    print(f"Objects detected: {region_count}")
     
-    if polythene_detected:
-        send_command('H')
-        time.sleep(0.5)
-        send_command('C')
-        time.sleep(0.5)
-    send_command('O')
+    if region_count >= 2:
+        bio_count = detected_classes.count("biodegradable")
+        non_bio_count = detected_classes.count("non-biodegradable")
+        
+        if bio_count == 2:
+            send_flag(class_to_flag['biodegradable'])
+            send_command("THROW_BIO")
+        elif non_bio_count == 2:
+            send_flag(class_to_flag['non-biodegradable'])
+            send_command("THROW_NON_BIO")
+        else:
+            send_command("MOVE_FAST")  # Move plate fast if mixed
+    else:
+        send_command("MOVE")  # Move to next rotation
+    
+    print("✅ Process Completed Successfully!")
 
-def detect_biodegradable_in_redbox(image_path):
-    frame = cv2.imread(image_path)
-    results = model_biogas(image_path)
-    detected_flags = []
-    detected_in_red_box = False
-    cv2.rectangle(frame, (RED_BOX_X1, RED_BOX_Y1), (RED_BOX_X2, RED_BOX_Y2), (0, 0, 255), 3)
-    
-    for result in results:
-        for box in result.boxes:
-            x1, y1, x2, y2 = map(int, box.xyxy[0])
-            class_id = int(box.cls[0])
-            detected_class = model_biogas.names[class_id]
-            box_area = (x2 - x1) * (y2 - y1)
-            
-            if box_area > 50000:  # Ignore large bounding boxes
-                continue
-            
-            if not (x2 < RED_BOX_X1 or x1 > RED_BOX_X2 or y2 < RED_BOX_Y1 or y1 > RED_BOX_Y2):
-                detected_in_red_box = True
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
-                cv2.putText(frame, detected_class, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-                normalized_class = detected_class.lower().replace(" ", "-")
-                flag = class_to_flag.get(normalized_class, None)
-                if flag is not None:
-                    detected_flags.append(flag)
-    
-    cv2.imwrite("temp.jpg", frame)
-    
-    if detected_flags:
-        selected_flag = min(detected_flags)
-        send_flag(selected_flag)
-        return True
-    return False
+cam_2 = "http://192.168.1.104/cam-hi.jpg"
 
-def process_second_third_layer(cam_2):
-    detected = False
-    for _ in range(4):
-        send_command("MOVE")
-        time.sleep(1)
-        frame = capture_frame(cam_2)
-        if frame is None:
-            continue
-        detected = detect_biodegradable_in_redbox("temp.jpg")
-        if detected:
-            break
-    if not detected:
-        send_command("MOVE")
-    send_command("HAND_MOTOR:RESET")
-
-def run_full_process():
-    cam_1 = "http://192.168.1.103/cam-hi.jpg"
-    cam_2 = "http://192.168.1.104/cam-hi.jpg"
-    
-    for i in range(4):
-        print(f"Starting Cycle {i+1}...")
-        process_first_layer(cam_1)
-        time.sleep(2)
-        process_second_third_layer(cam_2)
-    print("✅ All 4 Cycles Completed Successfully!")
-
-if _name_ == "_main_":
-    run_full_process()
+if __name__ == "__main__":
+    print("Starting Garbage Processing...")
+    process_layer(cam_2)
