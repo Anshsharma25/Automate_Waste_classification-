@@ -1,3 +1,6 @@
+#it is runnig when region have something object and run all thinks when it detect object in regions
+#rotate in region only
+
 import cv2
 import serial
 import time
@@ -158,7 +161,7 @@ def detect_biodegradable(frame):
 def process_second_third_layer(cam_2):
     """Handles rotation, detection, and sorting based on classification."""
     
-    for _ in range(4):  # Repeat the process 4 times
+    for _ in range(5):  # Repeat the process 4 times
         print("Start")
         time.sleep(3)  # Delay for 3 seconds
         print("End after 3 seconds")
