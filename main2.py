@@ -224,6 +224,13 @@
 Working with motor but motor is not stopping after detection
 =======================================================================================================
 '''
+
+'''
+take one more detection for same object
+In this code it will be do One more extra time of movement of hand
+so that why it will despute for next detection.
+'''
+
 import cv2
 import serial
 import time
@@ -485,4 +492,4 @@ if __name__ == "__main__":
     main()
 
 
-#take one more detection for same object
+
