@@ -6,6 +6,7 @@ from ultralytics import YOLO
 
 # from exception import CustomException as e
 # from logger import logging
+
 import logging
 
 MAX_HEIGHT = 400
@@ -18,7 +19,7 @@ model_biogas = YOLO(r"biogas.pt")  # YOLO model for biodegradable classification
 logging.info("Models have been loaded.")
 
 # ESP8266 Configuration
-ESP8266_IP = "192.168.1.28"
+ESP8266_IP = "192.168.1.200"
 
 class_to_flag = {
     'nonbiogasready': 5,
@@ -26,13 +27,16 @@ class_to_flag = {
 }
 
 region_pts = np.array([
-    [120, 88],
-    [11, 149],
-    [4, 280],
-    [13, 388],
-    [260, 469],
-    [263, 82],
-    [124, 90]
+[5, 108],
+[5, 425],
+[113, 467],
+[236, 454],
+[301, 314],
+[328, 169],
+[253, 74],
+[143, 46],
+[59, 64],
+[6, 110]
 ], np.int32).reshape((-1, 1, 2))
 
 
@@ -64,7 +68,12 @@ def send_esp_command(cmd, expected_response=None, timeout=10):
 def capture_frame(cam_url):
     """Capture a frame from ESP32-CAM without drawing the region."""
     cap = cv2.VideoCapture(cam_url)
-    time.sleep(2)
+    # Wait dynamically for the camera to be ready
+    start_time = time.time()
+    # while not capture_frame1(cam_2):
+    #     if time.time() - start_time > 5:  # Timeout after 5 seconds
+    #         print("Camera not ready. Skipping this iteration.")
+    #         break
     ret, frame = cap.read()
     cap.release()
     
@@ -75,6 +84,23 @@ def capture_frame(cam_url):
     image_path = "temp.jpg"
     cv2.imwrite(image_path, frame)
     logging.info(f"Camera shot '{cam_url}' captured.")
+    return frame
+
+def capture_frame1(cam_url):
+    """Capture a frame from ESP32-CAM with a highlighted region."""
+    cap = cv2.VideoCapture(cam_url)
+    time.sleep(2)
+    ret, frame = cap.read()
+    cap.release()
+    
+    if not ret:
+        print("Failed to grab frame")
+        return None
+    
+    cv2.polylines(frame, [region_pts], isClosed=True, color=(0, 255, 255), thickness=2)
+    image_path = "temp.jpg"
+    cv2.imwrite(image_path, frame)
+    logging.info(f"Camera shot '{cam_url}' captured with bounding box")
     return frame
 
 
@@ -117,8 +143,11 @@ def process_first_layer(cam_1):
 
 def detect_biodegradable(frame):
     """Detect objects in a specific region and classify them."""
+    # Save the frame as a temporary image for YOLO processing
+    temp_image_path = "temp_detect.jpg"
+    cv2.imwrite(temp_image_path, frame)
     time.sleep(10)
-    results = model_biogas(frame)
+    results = model_biogas(temp_image_path)
     detected_classes = []
     region_count = 0
     time.sleep(2)
@@ -130,28 +159,39 @@ def detect_biodegradable(frame):
             x1, y1, x2, y2 = map(int, box.xyxy[0])
             center_x = (x1 + x2) // 2
             center_y = (y1 + y2) // 2
+            
+            width = x2 - x1
+            height = y2 - y1
 
-            if (x2 - x1) * (y2 - y1) > MAX_HEIGHT * MAX_WIDTH:
-                print(f"Ignored large bounding box: {(x1, y1, x2, y2)} and class {detected_class}")
+            if width > MAX_WIDTH or height > MAX_HEIGHT :
+                print(f"Ignored large bounding box: {(x1, y1, x2, y2)} and class {detected_class} too large with width {width} and height {height}")
+                logging.info(f"Ignored large bounding box: {(x1, y1, x2, y2)} and class {detected_class} too large with width {width} and height {height}")
                 continue
 
             if cv2.pointPolygonTest(region_pts, (center_x, center_y), False) >= 0:
                 detected_classes.append(detected_class)
                 region_count += 1
+                # Draw bounding box and label on the frame
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(frame, detected_class, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+                
+    # Save the frame with bounding boxes
+    cv2.imwrite("detected_objects.jpg", frame)
+    logging.info("Detection results saved to 'detected_objects.jpg'")
 
-    print(f"Total objects detected: {region_count}, Classes: {detected_classes}")
+    print(f"Total objects detected in region: {region_count}, Classes: {detected_classes}")
     return detected_classes, region_count
 
 
 def process_second_third_layer(cam_2):
     """Handles rotation, detection, and sorting based on classification."""
     send_esp_command("MOVE_SINGLE")
-    time.sleep(2)
+    time.sleep(1)
 
     for _ in range(4):
         time.sleep(2)
         print("Capturing Image for Object Detection")
-        frame = capture_frame(cam_2)
+        frame = capture_frame1(cam_2)
 
         if frame is None:
             continue
@@ -179,22 +219,68 @@ def process_second_third_layer(cam_2):
                 print("All objects are non-biodegradable.")
                 send_esp_command("FLAG_5")
                 send_esp_command("MOVE_MULTI")
+            elif bio_count > 0 and non_bio_count > 0:
+                print("Both biodegradable and non-biodegradable objects detected.")
+                send_esp_command("MOVE_SINGLE")
             else:
                 print("Mixed objects detected, moving plate quickly.")
                 send_esp_command("MOVE_SINGLE")
-        else:
-            print(f"Unknown classification: {detected_classes}")
-            send_esp_command("MOVE_SINGLE")
+        # else:
+        #     print(f"Unknown classification: {detected_classes}. This might indicate an issue with the YOLO model's class names or unexpected objects in the frame. Please verify the model's configuration and detected classes.")
+        #     send_esp_command("MOVE_SINGLE")
 
     print("✅ Process Completed Successfully!")
+def loop(cam_2):
+    """Loop to check if something is present on the plate and process accordingly."""
+    terminate_loop = False
+    no_object_count = 0
 
+    while not terminate_loop:
+        print("Capturing Image for Object Detection")
+        frame = capture_frame1(cam_2)
+        if frame is None:
+            print("Failed to capture frame. Retrying...")
+            continue
 
-# Camera URLs
-cam_1 = "http://192.168.1.103/cam-hi.jpg"
-cam_2 = "http://192.168.1.104/cam-hi.jpg"
+        detected_classes, region_count = detect_biodegradable(frame)
 
-if __name__ == "__main__":
-    print("Starting Garbage Processing...")
-    process_first_layer(cam_1)
-    time.sleep(2)
-    process_second_third_layer(cam_2)
+        if region_count == 0:
+            no_object_count += 1
+            print("No objects detected in the region.")
+            if no_object_count >= 3:  # If no objects detected for 3 consecutive checks
+                print("Process complete. No objects left on the plate.")
+                terminate_loop = True
+            else:
+                send_esp_command("MOVE_MULTI")
+                time.sleep(2)  # Allow time for the plate to move
+            continue  # Capture the next frame and recheck
+
+        elif region_count >= 1:
+            no_object_count = 0  # Reset the counter if objects are detected
+            bio_count = detected_classes.count("biogasready")
+            non_bio_count = detected_classes.count("nonbiogasready")
+
+            flag_sent = False  # Flag to prevent multiple executions
+
+            if bio_count == region_count:
+                print("All objects are biodegradable.")
+                if not flag_sent:
+                    send_esp_command("FLAG_4")
+                    print("hello gandu")
+                    flag_sent = True
+
+            elif non_bio_count == region_count:
+                print("All objects are non-biodegradable.")
+                if not flag_sent:
+                    send_esp_command("FLAG_5")
+                    print("hello chutiya")
+                    flag_sent = True
+
+            if flag_sent:
+                send_esp_command("MOVE_MULTI")
+
+            elif bio_count > 0 and non_bio_count > 0:
+                print("Both biodegradable and non-biodegradable objects detected.")
+                send_esp_command("MOVE_SINGLE")
+
+    print("✅ loop Completed Successfully!")
