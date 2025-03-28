@@ -1,101 +1,296 @@
-#include <ESP8266WiFi.h>
-#include <ESP8266HTTPClient.h>
+#include <Servo.h>
 
-const char* ssid = "Airtel_vish_0787";  // Replace with your WiFi SSID
-const char* password = "air76152";  // Replace with your WiFi Password
-const char* serverUrl = "http://192.168.1.14:5000/sensor_data";  // Replace with your API URL
+// Hand Pressure Servo
+Servo handPressure;
+#define HAND_PRESSURE_PIN 6
 
-WiFiClient client;
-bool arduinoConnected = false;  // Track Arduino connection status
-unsigned long lastReceivedTime = 0;  // Track last data received time
+// Cutter Motor Pins
+#define cutterMotorEnable 22
+#define cutterMotorInput1 24
+#define cutterMotorInput2 26
+
+// Opening Plate Motor Pins
+#define openingPlateMotorEnable 32
+#define openingPlateMotorInput1 28
+#define openingPlateMotorInput2 30
+#define ENCODER_A 2
+
+// Servo motors for robotic arm
+Servo servoBase;
+Servo servoElbow;
+int baseStart = 80;
+int elbowStart = 180;
+int baseTarget = 0;
+int elbowTarget = -135;
+
+// Servo motor for gate
+Servo myServo;
+
+// Motor driver for Net Motor
+int netMotor_IN1 = 7;
+int netMotor_IN2 = 8;
+int ena = 11;
+
+// Motor driver for Flag Motor
+const int motorPin1 = 3;
+const int motorPin2 = 4;
+const int enablePin = 5;
+
+// Encoder Variables
+volatile int encoderCount = 0;
+int pulsesPerRotation = 100;
+int targetRotations = 2;
+
+// Motor Speed
+int motorSpeed = 110;
+
+// Encoder ISR Function
+void countPulses() {
+    encoderCount++;
+}
 
 void setup() {
-    Serial.begin(115200);
-    WiFi.begin(ssid, password);
+    Serial.begin(9600);
+    Serial1.begin(9600); 
 
-    Serial.print("Connecting to WiFi");
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(1000);
-        Serial.print(".");
-    }
-    Serial.println("\nWiFi Connected!");
+    // Attach servos
+    handPressure.attach(HAND_PRESSURE_PIN);
+    handPressure.write(130);
+    servoBase.attach(10);
+    servoElbow.attach(9);
+    servoBase.write(baseStart);
+    servoElbow.write(elbowStart);
+
+    // Gate servo
+    myServo.attach(52); 
+    myServo.write(0); 
+    delay(1000); 
+
+    // Setup Cutter Motor
+    pinMode(cutterMotorEnable, OUTPUT);
+    pinMode(cutterMotorInput1, OUTPUT);
+    pinMode(cutterMotorInput2, OUTPUT);
+
+    // Setup Opening Plate Motor
+    pinMode(openingPlateMotorEnable, OUTPUT);
+    pinMode(openingPlateMotorInput1, OUTPUT);
+    pinMode(openingPlateMotorInput2, OUTPUT);
+
+    // Setup Net Motor
+    pinMode(netMotor_IN1, OUTPUT);
+    pinMode(netMotor_IN2, OUTPUT);
+    pinMode(ena, OUTPUT);
+    digitalWrite(ena, HIGH);
+
+    // Setup Flag Motor
+    pinMode(motorPin1, OUTPUT);
+    pinMode(motorPin2, OUTPUT);
+    pinMode(enablePin, OUTPUT);
+
+    // Setup Encoder
+    pinMode(ENCODER_A, INPUT_PULLUP);
+    attachInterrupt(digitalPinToInterrupt(ENCODER_A), countPulses, RISING);
+
+    Serial.println("🚀 System Ready. Waiting for commands...");
 }
 
 void loop() {
-    if (WiFi.status() == WL_CONNECTED) {
-        if (Serial.available()) {
-            String receivedData = Serial.readStringUntil('\n');  // Read full line
-            receivedData.trim();  // Remove extra spaces
+    if (Serial.available()) {
+        String command = Serial.readStringUntil('\n');
+        command.trim();
 
-            if (receivedData.length() == 0) {
-                Serial.println("⚠ Warning: Empty data received from Arduino!");
-                return;
-            }
-
-            // Track last received time
-            lastReceivedTime = millis();
-            arduinoConnected = true;  // Set flag that Arduino is sending data
-
-            Serial.println("✅ Data Received: " + receivedData);  // Debugging
-
-            // Parse expected format: "Non-Biodegradable: X.XX% | Biodegradable: X.XX% | Common: X.XX% | Liquid: X.XX%"
-            int nonBioIndex = receivedData.indexOf("Non-Biodegradable: ");
-            int bioIndex = receivedData.indexOf("Biodegradable: ");
-            int commonIndex = receivedData.indexOf("Common: ");
-            int liquidIndex = receivedData.indexOf("Liquid: ");
-
-            if (nonBioIndex != -1 && bioIndex != -1 && commonIndex != -1 && liquidIndex != -1) {
-                float nonBio = receivedData.substring(nonBioIndex + 18, receivedData.indexOf("%", nonBioIndex)).toFloat();
-                float bio = receivedData.substring(bioIndex + 14, receivedData.indexOf("%", bioIndex)).toFloat();
-                float common = receivedData.substring(commonIndex + 8, receivedData.indexOf("%", commonIndex)).toFloat();
-                float liquid = receivedData.substring(liquidIndex + 8, receivedData.indexOf("%", liquidIndex)).toFloat();
-
-                // Ensure valid values
-                if (nonBio < 0 || bio < 0 || common < 0 || liquid < 0) {
-                    Serial.println("⚠ Warning: Invalid sensor values received!");
-                    return;
-                }
-
-                HTTPClient http;
-                http.begin(client, serverUrl);
-                http.addHeader("Content-Type", "application/json");
-
-                // Prepare JSON payload
-                String jsonPayload = "{";
-                jsonPayload += "\"non_biodegradable\":" + String(nonBio) + ",";
-                jsonPayload += "\"biodegradable\":" + String(bio) + ",";
-                jsonPayload += "\"common\":" + String(common) + ",";
-                jsonPayload += "\"liquid\":" + String(liquid) + "}";
-
-                Serial.println("📡 Sending JSON: " + jsonPayload);  // Debugging
-
-                int httpResponseCode = http.POST(jsonPayload);
-
-                // Print response from server
-                Serial.print("🔄 HTTP Response Code: ");
-                Serial.println(httpResponseCode);
-
-                if (httpResponseCode > 0) {
-                    String response = http.getString();
-                    Serial.println("✅ Server Response: " + response);
-                } else {
-                    Serial.println("❌ Error in HTTP Request");
-                }
-
-                http.end();
-            } else {
-                Serial.println("❌ Parsing Failed! Invalid Data Format.");
-            }
+        if (command == "H") {
+            activateHandPressure();
+            delay(500);
+        } 
+        else if (command == "C") {
+            activateCutter();
+            delay(1000);
+        } 
+        else if (command == "O") {
+            // Perform clockwise rotation, then counterclockwise rotation, then send final confirmation.
+            rotateOpeningPlate(true, 150);
+            delay(1000);
+            rotateOpeningPlate(false, 150);
+            delay(1000);
+            Serial.println("Plate Rotation Completed");
+        } 
+        else if (command == "MOVE_SINGLE") {
+            Serial.println("MOVE_SINGLE WITH SPEED ...");
+            rotateNetFullSpeed();
         }
-    } else {
-        Serial.println("❌ WiFi Not Connected!");
+      
+        else if (command == "MOVE_MULTI") {
+            Serial.println("MOVE_MULTI WITHOUT SPEED");
+                     rotateNetHalfSpeed();
+                     Serial.println("hello chutiya");
+                       // int flag = receiveFlagFromSerial1();
+                  // executeFlagAction(flag);
+
+        }
+      
+     else if (command == "FLAG_4") {
+          
+        executeFlagAction(4);
+        }
+      
+        else if (command == "FLAG_5") {
+            executeFlagAction(5);
+            
+
+        }
+      
+
+        
+    }
+}
+
+
+
+
+
+
+void activateHandPressure() {
+    handPressure.write(13);
+    Serial.println("Hand Pressure Activated");
+}
+
+void activateCutter() {
+    // Start cutter
+    digitalWrite(cutterMotorEnable, HIGH);
+    digitalWrite(cutterMotorInput1, HIGH);
+    digitalWrite(cutterMotorInput2, LOW);
+    delay(2000);  // Cutter active period
+    
+    // Stop cutter
+    digitalWrite(cutterMotorEnable, LOW);
+    delay(2000);  // Ensure complete stop
+
+    // Send final confirmation message
+    Serial.println("Cutter Complete");
+}
+
+void rotateOpeningPlate(bool clockwise, int durationMs) {
+    encoderCount = 0;
+    int targetPulses = pulsesPerRotation * targetRotations;
+    
+    // Print rotation direction
+    Serial.println(clockwise ? "Rotating Opening Plate Clockwise" : "Rotating Opening Plate Counterclockwise");
+
+    digitalWrite(openingPlateMotorEnable, HIGH);
+    digitalWrite(openingPlateMotorInput1, clockwise ? HIGH : LOW);
+    digitalWrite(openingPlateMotorInput2, clockwise ? LOW : HIGH);
+
+    unsigned long startTime = millis();
+    while ((millis() - startTime) < durationMs && encoderCount < targetPulses) {
+        // Wait for the plate to rotate the required amount or for duration to expire
     }
 
-    // Check if Arduino has stopped sending data
-    if (arduinoConnected && millis() - lastReceivedTime > 5000) {
-        Serial.println("⚠ Warning: No data received from Arduino for 5 seconds!");
-        arduinoConnected = false;  // Reset flag
-    }
+    digitalWrite(openingPlateMotorEnable, LOW);
+    handPressure.write(130);
+    
+    Serial.println("Opening Plate Stopped");
+}
 
+void rotateNetFullSpeed() {
+    Serial.println("Rotating plate at full speed...");
+    digitalWrite(netMotor_IN1, HIGH);
+    digitalWrite(netMotor_IN2, LOW);
+    delay(2000);
+    digitalWrite(netMotor_IN1, LOW);
+    digitalWrite(netMotor_IN2, LOW);
+}
+
+void rotateNetHalfSpeed() {
+    Serial.println("Rotating plate at 50% speed...");
+    analogWrite(ena, 80);
+    digitalWrite(netMotor_IN1, HIGH);
+    digitalWrite(netMotor_IN2, LOW);
+    delay(400);
+    digitalWrite(netMotor_IN1, LOW);
+    digitalWrite(netMotor_IN2, LOW);
+    delay(6000);
+    analogWrite(ena, 255);
+}
+
+// // Receiving flag from ESP8266
+// int receiveFlagFromSerial1() {
+//     while (!Serial1.available()) {}
+//     String receivedData = Serial1.readStringUntil('\n');
+//     receivedData.trim();
+//     String flagStr = "";
+
+//     for (char c : receivedData) {
+//         if (isDigit(c)) flagStr += c;
+//     }
+
+//     if (flagStr.length() > 0) {
+//         int flag = flagStr.toInt();
+//         return flag;
+//     }
+//     return 0;
+// }
+
+// Executing action based on flag
+void executeFlagAction(int flag) {
+    if (flag == 5) {
+        rotateLeft(motorSpeed);
+        delay(1400);
+        stopMotor();
+        myServo.write(145); // Move servo to 45 degrees
+        delay(500);
+        moveServosSync(baseTarget, elbowTarget, 5);
+        delay(500);
+        moveServosSync(baseStart, elbowStart, 5);
+        delay(500);
+
+        myServo.write(10);  // Move servo back to 0 degrees
+    
+        rotateRight(motorSpeed);
+        delay(1600);
+        stopMotor();
+    } else if (flag == 4) {
+        rotateLeft(motorSpeed);
+        delay(600);
+        stopMotor();
+       
+        myServo.write(145);  // Move servo back to 0 degrees
+
+        moveServosSync(baseTarget, elbowTarget, 5);
+        delay(500);
+        moveServosSync(baseStart, elbowStart, 5);
+        delay(500);
+
+        myServo.write(10);  // Move servo back to 0 degrees
+
+        delay(500);
+
+        rotateRight(motorSpeed);
+        delay(700);
+        stopMotor();
+    }
+}
+
+void moveServosSync(int baseAngle, int elbowAngle, int speed) {
+    servoBase.write(baseAngle);
+    servoElbow.write(elbowAngle);
     delay(1000);
+}
+
+void rotateRight(int speed) {
+    digitalWrite(motorPin1, HIGH);
+    digitalWrite(motorPin2, LOW);
+    analogWrite(enablePin, speed);
+}
+
+void rotateLeft(int speed) {
+    digitalWrite(motorPin1, LOW);
+    digitalWrite(motorPin2, HIGH);
+    analogWrite(enablePin, speed);
+}
+
+void stopMotor() {
+    digitalWrite(motorPin1, LOW);
+    digitalWrite(motorPin2, LOW);
+    analogWrite(enablePin, 0);
 }

@@ -3,13 +3,14 @@ import requests
 import time
 import numpy as np
 from ultralytics import YOLO
+import itertools
 
 # from exception import CustomException as e
 # from logger import logging
 
 import logging
 
-MAX_HEIGHT = 400
+MAX_HEIGHT = 450
 MAX_WIDTH = 400
 
 # Initialize YOLO Models
@@ -231,12 +232,14 @@ def process_second_third_layer(cam_2):
 
     print("✅ Process Completed Successfully!")
 
+
+
 def loop(cam_2):
     """Loop to check if something is present on the plate and process accordingly."""
-    terminate_loop = False
     no_object_count = 0
 
-    while not terminate_loop:
+    for _ in itertools.count():
+        time.sleep(4) # Wait for the plate to settle after moving
         print("Capturing Image for Object Detection")
         frame = capture_frame1(cam_2)
         if frame is None:
@@ -248,100 +251,103 @@ def loop(cam_2):
         if region_count == 0:
             no_object_count += 1
             print("No objects detected in the region.")
-            if no_object_count >= 3:  # If no objects detected for 3 consecutive checks
+            if no_object_count >= 3:
                 print("Process complete. No objects left on the plate.")
-                terminate_loop = True
+                break
             else:
                 send_esp_command("MOVE_MULTI")
-                time.sleep(2)  # Allow time for the plate to move
-            continue  # Capture the next frame and recheck
+                time.sleep(2)  # Wait for the plate to move
+            continue
 
-        elif region_count >= 1:
-            no_object_count = 0  # Reset the counter if objects are detected
-            bio_count = detected_classes.count("biogasready")
-            non_bio_count = detected_classes.count("nonbiogasready")
+        # Reset counter once an object is detected
+        no_object_count = 0  
+        bio_count = detected_classes.count("biogasready")
+        non_bio_count = detected_classes.count("nonbiogasready")
 
-            flag_sent = False  # Flag to prevent multiple executions
+        if bio_count == region_count:
+            print("All objects are biodegradable.")
+            send_esp_command("FLAG_4")
+        elif non_bio_count == region_count:
+            print("All objects are non-biodegradable.")
+            send_esp_command("FLAG_5")
+        elif bio_count > 0 and non_bio_count > 0:
+            print("Both biodegradable and non-biodegradable objects detected.")
+            send_esp_command("MOVE_SINGLE")
 
-            if bio_count == region_count:
-                print("All objects are biodegradable.")
-                if not flag_sent:
-                    send_esp_command("FLAG_4")
-                    print("hello gandu")
-                    flag_sent = True
+        # Command the plate to move and wait longer for an updated image
+        send_esp_command("MOVE_MULTI")
+        time.sleep(5) # Increased wait time
 
-            elif non_bio_count == region_count:
-                print("All objects are non-biodegradable.")
-                if not flag_sent:
-                    send_esp_command("FLAG_5")
-                    print("hello chutiya")
-                    flag_sent = True
-
-            if flag_sent:
-                send_esp_command("MOVE_MULTI")
-
-            elif bio_count > 0 and non_bio_count > 0:
-                print("Both biodegradable and non-biodegradable objects detected.")
-                send_esp_command("MOVE_SINGLE")
+        # Flush the camera buffer by opening and releasing the camera
+        cap = cv2.VideoCapture(cam_2)
+        for _ in range(5):  # Capture and discard several frames to clear the buffer
+            ret, _ = cap.read()
+            if not ret:
+                print("Failed to flush camera buffer.")
+        cap.release()
+        time.sleep(2) # Give a small delay after flushing
 
     print("✅ loop Completed Successfully!")
+
+
+
 # def loop(cam_2):
-    """Loop to check if something is present on the plate and process accordingly."""
-    terminate_loop = False
-    no_object_count = 0
+    # """Loop to check if something is present on the plate and process accordingly."""
+    # terminate_loop = False
+    # no_object_count = 0
 
-    while not terminate_loop:
-        print("Capturing Image for Object Detection")
-        frame = capture_frame1(cam_2)
-        if frame is None:
-            print("Failed to capture frame. Retrying...")
-            continue
+    # while not terminate_loop:
+    #     print("Capturing Image for Object Detection")
+    #     frame = capture_frame1(cam_2)
+    #     if frame is None:
+    #         print("Failed to capture frame. Retrying...")
+    #         continue
 
-        detected_classes, region_count = detect_biodegradable(frame)
+    #     detected_classes, region_count = detect_biodegradable(frame)
 
-        if region_count == 0:
-            no_object_count += 1
-            print("No objects detected in the region.")
-            if no_object_count >= 3:  # If no objects detected for 3 consecutive checks
-                print("Process complete. No objects left on the plate.")
-                terminate_loop = True
-            else:
-                send_esp_command("MOVE_MULTI")
-                time.sleep(2)  # Allow time for the plate to move
-            continue  # Capture the next frame and recheck
+    #     if region_count == 0:
+    #         no_object_count += 1
+    #         print("No objects detected in the region.")
+    #         if no_object_count >= 3:  # If no objects detected for 3 consecutive checks
+    #             print("Process complete. No objects left on the plate.")
+    #             terminate_loop = True
+    #         else:
+    #             send_esp_command("MOVE_MULTI")
+    #             time.sleep(2)  # Allow time for the plate to move
+    #         continue  # Capture the next frame and recheck
 
-        elif region_count == 1:
-            # no_object_count = 0  # Reset the counter if objects are detected
-            bio_count = detected_classes.count("biogasready")
-            non_bio_count = detected_classes.count("nonbiogasready")
+    #     elif region_count == 1:
+    #         # no_object_count = 0  # Reset the counter if objects are detected
+    #         bio_count = detected_classes.count("biogasready")
+    #         non_bio_count = detected_classes.count("nonbiogasready")
             
-            if bio_count == region_count:
-                print("All objects are biodegradable.")
-                send_esp_command("FLAG_4")
-                send_esp_command("MOVE_MULTI")
-            elif non_bio_count == region_count:
-                print("All objects are non-biodegradable.")
-                send_esp_command("FLAG_5")
-                send_esp_command("MOVE_MULTI")
+    #         if bio_count == region_count:
+    #             print("All objects are biodegradable.")
+    #             send_esp_command("FLAG_4")
+    #             send_esp_command("MOVE_MULTI")
+    #         elif non_bio_count == region_count:
+    #             print("All objects are non-biodegradable.")
+    #             send_esp_command("FLAG_5")
+    #             send_esp_command("MOVE_MULTI")
 
-        elif region_count >= 2:
-            no_object_count = 0  # Reset the counter if objects are detected
-            bio_count = detected_classes.count("biogasready")
-            non_bio_count = detected_classes.count("nonbiogasready")
+    #     elif region_count >= 2:
+    #         no_object_count = 0  # Reset the counter if objects are detected
+    #         bio_count = detected_classes.count("biogasready")
+    #         non_bio_count = detected_classes.count("nonbiogasready")
 
-            if bio_count == region_count:
-                print("All objects are biodegradable.")
-                send_esp_command("FLAG_4")
-                send_esp_command("MOVE_MULTI")
-            elif non_bio_count == region_count:
-                print("All objects are non-biodegradable.")
-                send_esp_command("FLAG_5")
-                send_esp_command("MOVE_MULTI")
-            elif bio_count > 0 and non_bio_count > 0:
-                print("Both biodegradable and non-biodegradable objects detected.")
-                send_esp_command("MOVE_SINGLE")
+    #         if bio_count == region_count:
+    #             print("All objects are biodegradable.")
+    #             send_esp_command("FLAG_4")
+    #             send_esp_command("MOVE_MULTI")
+    #         elif non_bio_count == region_count:
+    #             print("All objects are non-biodegradable.")
+    #             send_esp_command("FLAG_5")
+    #             send_esp_command("MOVE_MULTI")
+    #         elif bio_count > 0 and non_bio_count > 0:
+    #             print("Both biodegradable and non-biodegradable objects detected.")
+    #             send_esp_command("MOVE_SINGLE")
 
-    print("✅ Loop Completed Successfully!")
+    # print("✅ Loop Completed Successfully!")
 
 
 
