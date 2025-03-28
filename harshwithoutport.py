@@ -361,3 +361,11 @@ if __name__ == "__main__":
     time.sleep(2)
     process_second_third_layer(cam_2)
     loop(cam_2)
+
+
+
+
+
+'''
+ updated code to include the loop function to check for objects on the plate and process them accordingly.
+ '''
