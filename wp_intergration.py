@@ -123,6 +123,7 @@ while True:
 
     def main():
         """Main function to execute the workflow."""
+        print("Dustbin Monitoring Script Started.")
         logging.info("Starting dustbin monitoring script.")
         dustbin_status = fetch_first_dustbin_status()  # Pick first document
         if not dustbin_status:

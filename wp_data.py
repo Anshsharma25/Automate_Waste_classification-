@@ -60,6 +60,8 @@ app = Flask(__name__)
 username = quote_plus("dustbin")  # Replace with your MongoDB username
 password = quote_plus("Dustbin@123")  # Replace with your MongoDB password
 MONGO_URI = f"mongodb+srv://{username}:{password}@cluster0.fmudd.mongodb.net/"
+
+# mongodb+srv://dustbin:<db_password>@cluster0.fmudd.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
 DATABASE_NAME = "garbage_detection"
 COLLECTION_NAME = "dustbin_status_random1"  # Collection name
 
@@ -100,4 +102,4 @@ def receive_sensor_data():
 
 # --- Main Execution ---
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='127.0.0.1', port=5000, debug=True)

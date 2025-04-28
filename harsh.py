@@ -10,8 +10,8 @@ import itertools
 
 import logging
 
-MAX_HEIGHT = 450
-MAX_WIDTH = 400
+MAX_HEIGHT = 800
+MAX_WIDTH = 800
 
 # Initialize YOLO Models
 model_poly = YOLO(r"poly_non_poly.pt")  # YOLO model for polythene detection
@@ -187,10 +187,10 @@ def detect_biodegradable(frame):
 def process_second_third_layer(cam_2):
     """Handles rotation, detection, and sorting based on classification."""
     send_esp_command("MOVE_SINGLE")
-    time.sleep(1)
+    time.sleep(3)
 
     for _ in range(4):
-        time.sleep(2)
+        time.sleep(3)
         print("Capturing Image for Object Detection")
         frame = capture_frame1(cam_2)
 
@@ -251,7 +251,7 @@ def loop(cam_2):
         if region_count == 0:
             no_object_count += 1
             print("No objects detected in the region.")
-            if no_object_count >= 3:
+            if no_object_count >= 4:
                 print("Process complete. No objects left on the plate.")
                 break
             else:
@@ -276,7 +276,7 @@ def loop(cam_2):
 
         # Command the plate to move and wait longer for an updated image
         send_esp_command("MOVE_MULTI")
-        time.sleep(5) # Increased wait time
+        time.sleep(3) # Increased wait time
 
         # Flush the camera buffer by opening and releasing the camera
         cap = cv2.VideoCapture(cam_2)
@@ -351,6 +351,7 @@ def loop(cam_2):
 
 
 
+
 # Camera URLs
 cam_1 = "http://192.168.1.103/cam-hi.jpg"
 cam_2 = "http://192.168.1.104/cam-hi.jpg"
@@ -394,13 +395,6 @@ if __name__ == "__main__":
     total_time = end - Start  # Calculate total time in seconds
     print(f"Total execution time: {total_time:.2f} seconds")
     print("Garbage Processing Completed!")
-
-
-
-
-'''
- updated code to include the loop function to check for objects on the plate and process them accordingly.
- '''
 
 
 
